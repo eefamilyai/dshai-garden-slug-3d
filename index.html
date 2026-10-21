@@ -1356,7 +1356,7 @@ function deformVertex(s, u, x, y, z, station, st, out) {
   const bunch = station[4];
 
   // sole / ventral weighting: pedal waves live on the foot and lower flank
-  const uAtt = 1 - smoothstep(0.12, 0.62, u);
+  const uAtt = 1 - smoothstep(0.16, 0.78, u);
   const soleMin = 1 - smoothstep(0.0, 0.18, u);
 
   // breathing expands the whole section radially from the ground line
@@ -1366,7 +1366,7 @@ function deformVertex(s, u, x, y, z, station, st, out) {
   // travelling pedal wave: lifts the sole, bulges the flank
   const w = wave * uAtt;
   yy += w * st.waveAmp;
-  xx *= 1 + w * 0.022 + (soleMin ? 0 : 0);
+  xx *= 1 + w * 0.05;
   // a little inward "kneading" where the wave passes the margin
   xx -= Math.max(0, -w) * st.waveAmp * 0.5 * smoothstep(0.05, 0.35, u) * (1 - smoothstep(0.35, 0.7, u)) * 0.6;
 
@@ -2384,6 +2384,39 @@ function createSlug(tex) {
   const mouth = new THREE.Mesh(new THREE.CircleGeometry(1, 20), mouthMat);
   group.add(mouth);
 
+  // moisture beads sitting on the skin (a wet animal is never perfectly dry)
+  const DROPS = [];
+  {
+    const dropMat = new THREE.MeshPhysicalMaterial({
+      color: 0xf2f6ff,
+      roughness: 0.045,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.02,
+      iridescence: 0.12,
+      iridescenceIOR: 1.33,
+      envMapIntensity: 1.7,
+      transparent: true,
+      opacity: 0.55,
+    });
+    const drnd = mulberry32(90210);
+    const sphere = new THREE.SphereGeometry(1, 12, 9);
+    for (let i = 0; i < 16; i++) {
+      const m = new THREE.Mesh(sphere, dropMat);
+      m.castShadow = false;
+      m.receiveShadow = false;
+      group.add(m);
+      DROPS.push({
+        mesh: m,
+        s: 0.16 + drnd() * 0.78,
+        u: 0.55 + drnd() * 0.44,
+        side: drnd() > 0.5 ? 1 : -1,
+        r: 0.009 + Math.pow(drnd(), 2) * 0.019,
+        sq: 0.62 + drnd() * 0.3,
+      });
+    }
+  }
+
   /* -------------------------------------------------- surface sampling */
   const _p = new Float64Array(3);
   const _station = [0, 0, 0, 1, 0, 0];
@@ -2442,7 +2475,7 @@ function createSlug(tex) {
     const spd = Math.max(st.speed, 0.0001);
     st.wavePhase += dt * (1.05 + spd * 2.1);
     st.breathPhase += dt * 0.62;
-    st.waveAmp = 0.008 + Math.min(spd, 1.6) * 0.0075;
+    st.waveAmp = 0.013 + Math.min(spd, 1.6) * 0.012;
     st.swayAmp = 0.035 + Math.min(spd, 2) * 0.028;
     st.bunchAmp = 0.012 + Math.min(spd, 1.5) * 0.017;
     // slow autonomous opening of the lung pore
@@ -2493,6 +2526,14 @@ function createSlug(tex) {
     mouth.position.addScaledVector(tmpN, 0.01);
     mouth.lookAt(mouth.position.clone().add(tmpN));
     mouth.scale.set(0.019 + 0.005 * st.mouthOpen, 0.044 + 0.01 * st.mouthOpen, 1);
+
+    // --- dew beads follow the deforming skin --------------------------
+    for (const d of DROPS) {
+      const dp = surfaceDeformed(d.s, d.u, d.side, st);
+      surfaceNormalDeformed(d.s, d.u, d.side, st, tmpN);
+      d.mesh.position.set(dp[0], dp[1], dp[2]).addScaledVector(tmpN, d.r * 0.45);
+      d.mesh.scale.set(d.r, d.r * d.sq, d.r);
+    }
 
     // --- anchors for labels -------------------------------------------
     anchors.ocular.copy(tentacles[0].rig.tip);
